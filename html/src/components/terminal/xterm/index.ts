@@ -1,14 +1,16 @@
 import { bind } from 'decko';
-import { IDisposable, ITerminalOptions, Terminal } from 'xterm';
-import { CanvasAddon } from 'xterm-addon-canvas';
-import { WebglAddon } from 'xterm-addon-webgl';
-import { FitAddon } from 'xterm-addon-fit';
-import { WebLinksAddon } from 'xterm-addon-web-links';
-import { ImageAddon } from 'xterm-addon-image';
+import type { IDisposable, ITerminalOptions } from '@xterm/xterm';
+import { Terminal } from '@xterm/xterm';
+import { CanvasAddon } from '@xterm/addon-canvas';
+import { WebglAddon } from '@xterm/addon-webgl';
+import { FitAddon } from '@xterm/addon-fit';
+import { WebLinksAddon } from '@xterm/addon-web-links';
+import { ImageAddon } from '@xterm/addon-image';
+import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { OverlayAddon } from './addons/overlay';
 import { ZmodemAddon } from './addons/zmodem';
 
-import 'xterm/css/xterm.css';
+import '@xterm/xterm/css/xterm.css';
 
 interface TtydTerminal extends Terminal {
     fit(): void;
@@ -20,7 +22,7 @@ declare global {
     }
 }
 
-const enum Command {
+enum Command {
     // server side
     OUTPUT = '0',
     SET_WINDOW_TITLE = '1',
@@ -44,6 +46,9 @@ export interface ClientOptions {
     enableTrzsz: boolean;
     enableSixel: boolean;
     titleFixed?: string;
+    isWindows: boolean;
+    trzszDragInitTimeout: number;
+    unicodeVersion: string;
 }
 
 export interface FlowControl {
@@ -94,7 +99,10 @@ export class Xterm {
 
     private writeFunc = (data: ArrayBuffer) => this.writeData(new Uint8Array(data));
 
-    constructor(private options: XtermOptions, private sendCb: () => void) {}
+    constructor(
+        private options: XtermOptions,
+        private sendCb: () => void
+    ) {}
 
     dispose() {
         for (const d of this.disposables) {
@@ -218,7 +226,10 @@ export class Xterm {
         if (socket?.readyState !== WebSocket.OPEN) return;
 
         if (typeof data === 'string') {
-            socket.send(textEncoder.encode(Command.INPUT + data));
+            const payload = new Uint8Array(data.length * 3 + 1);
+            payload[0] = Command.INPUT.charCodeAt(0);
+            const stats = textEncoder.encodeInto(data, payload.subarray(1));
+            socket.send(payload.subarray(0, (stats.written as number) + 1));
         } else {
             const payload = new Uint8Array(data.length + 1);
             payload[0] = Command.INPUT.charCodeAt(0);
@@ -287,6 +298,40 @@ export class Xterm {
     }
 
     @bind
+    private parseOptsFromUrlQuery(query: string): Preferences {
+        const { terminal } = this;
+        const { clientOptions } = this.options;
+        const prefs = {} as Preferences;
+        const queryObj = Array.from(new URLSearchParams(query) as unknown as Iterable<[string, string]>);
+
+        for (const [k, queryVal] of queryObj) {
+            let v = clientOptions[k];
+            if (v === undefined) v = terminal.options[k];
+            switch (typeof v) {
+                case 'boolean':
+                    prefs[k] = queryVal === 'true' || queryVal === '1';
+                    break;
+                case 'number':
+                case 'bigint':
+                    prefs[k] = Number.parseInt(queryVal, 10);
+                    break;
+                case 'string':
+                    prefs[k] = queryVal;
+                    break;
+                case 'object':
+                    prefs[k] = JSON.parse(queryVal);
+                    break;
+                default:
+                    console.warn(`[ttyd] maybe unknown option: ${k}=${queryVal}, treating as string`);
+                    prefs[k] = queryVal;
+                    break;
+            }
+        }
+
+        return prefs;
+    }
+
+    @bind
     private onSocketData(event: MessageEvent) {
         const { textDecoder } = this;
         const rawData = event.data as ArrayBuffer;
@@ -305,6 +350,7 @@ export class Xterm {
                 this.applyPreferences({
                     ...this.options.clientOptions,
                     ...JSON.parse(textDecoder.decode(data)),
+                    ...this.parseOptsFromUrlQuery(window.location.search),
                 } as Preferences);
                 break;
             default:
@@ -320,6 +366,8 @@ export class Xterm {
             this.zmodemAddon = new ZmodemAddon({
                 zmodem: prefs.enableZmodem,
                 trzsz: prefs.enableTrzsz,
+                windows: prefs.isWindows,
+                trzszDragInitTimeout: prefs.trzszDragInitTimeout,
                 onSend: this.sendCb,
                 sender: this.sendData,
                 writer: this.writeData,
@@ -327,8 +375,8 @@ export class Xterm {
             this.writeFunc = data => this.zmodemAddon?.consume(data);
             terminal.loadAddon(register(this.zmodemAddon));
         }
-        Object.keys(prefs).forEach(key => {
-            const value = prefs[key];
+
+        for (const [key, value] of Object.entries(prefs)) {
             switch (key) {
                 case 'rendererType':
                     this.setRendererType(value);
@@ -358,6 +406,9 @@ export class Xterm {
                 case 'enableTrzsz':
                     if (value) console.log('[ttyd] trzsz enabled');
                     break;
+                case 'trzszDragInitTimeout':
+                    if (value) console.log(`[ttyd] trzsz drag init timeout: ${value}`);
+                    break;
                 case 'enableSixel':
                     if (value) {
                         terminal.loadAddon(register(new ImageAddon()));
@@ -370,6 +421,24 @@ export class Xterm {
                     this.titleFixed = value;
                     document.title = value;
                     break;
+                case 'isWindows':
+                    if (value) console.log('[ttyd] is windows');
+                    break;
+                case 'unicodeVersion':
+                    switch (value) {
+                        case 6:
+                        case '6':
+                            console.log('[ttyd] setting Unicode version: 6');
+                            break;
+                        case 11:
+                        case '11':
+                        default:
+                            console.log('[ttyd] setting Unicode version: 11');
+                            terminal.loadAddon(new Unicode11Addon());
+                            terminal.unicode.activeVersion = '11';
+                            break;
+                    }
+                    break;
                 default:
                     console.log(`[ttyd] option: ${key}=${JSON.stringify(value)}`);
                     if (terminal.options[key] instanceof Object) {
@@ -380,7 +449,7 @@ export class Xterm {
                     if (key.indexOf('font') === 0) fitAddon.fit();
                     break;
             }
-        });
+        }
     }
 
     @bind

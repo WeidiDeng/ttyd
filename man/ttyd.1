@@ -78,8 +78,8 @@ Cross platform: macOS, Linux, FreeBSD/OpenBSD, OpenWrt/LEDE, Windows
       Allow client to send command line arguments in URL (eg: http://localhost:7681?arg=foo&arg=bar)
 
 .PP
--R, --readonly
-      Do not allow clients to write to the TTY
+-W, --writable
+      Allow clients to write to the TTY (readonly by default)
 
 .PP
 -t, --client-option 
@@ -102,6 +102,10 @@ Cross platform: macOS, Linux, FreeBSD/OpenBSD, OpenWrt/LEDE, Windows
       Accept only one client and exit on disconnection
 
 .PP
+-q, --exit-no-conn
+      Exit on all clients disconnection
+
+.PP
 -B, --browser
       Open terminal with the default system browser
 
@@ -115,7 +119,7 @@ Cross platform: macOS, Linux, FreeBSD/OpenBSD, OpenWrt/LEDE, Windows
 
 .PP
 -P, --ping-interval
-      Websocket ping interval(sec) (default: 300)
+      Websocket ping interval(sec) (default: 5)
 
 .PP
 -6, --ipv6

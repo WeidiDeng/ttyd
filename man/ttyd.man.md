@@ -50,8 +50,8 @@ ttyd 1 "September 2016" ttyd "User Manual"
   -a, --url-arg
       Allow client to send command line arguments in URL (eg: http://localhost:7681?arg=foo&arg=bar)
 
-  -R, --readonly
-      Do not allow clients to write to the TTY
+  -W, --writable
+      Allow clients to write to the TTY (readonly by default)
 
   -t, --client-option <key=value>
       Send option to client (format: key=value), repeat to add more options, see **CLIENT OPTIONS** for details
@@ -68,6 +68,9 @@ ttyd 1 "September 2016" ttyd "User Manual"
   -o, --once
       Accept only one client and exit on disconnection
 
+  -q, --exit-no-conn
+      Exit on all clients disconnection
+
   -B, --browser
       Open terminal with the default system browser
 
@@ -78,7 +81,7 @@ ttyd 1 "September 2016" ttyd "User Manual"
       Expected base path for requests coming from a reverse proxy (eg: /mounted/here, max length: 128)
 
   -P, --ping-interval
-      Websocket ping interval(sec) (default: 300)
+      Websocket ping interval(sec) (default: 5)
 
   -6, --ipv6
       Enable IPv6 support

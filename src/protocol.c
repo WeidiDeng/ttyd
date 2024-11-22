@@ -306,7 +306,7 @@ int callback_tty(struct lws *wsi, enum lws_callback_reasons reason, void *user, 
 
       switch (command) {
         case INPUT:
-          if (server->readonly) break;
+          if (!server->writable) break;
           int err = pty_write(pss->process, pty_buf_init(pss->buffer + 1, pss->len - 1));
           if (err) {
             lwsl_err("uv_write: %s (%s)\n", uv_err_name(err), uv_strerror(err));
@@ -379,8 +379,8 @@ int callback_tty(struct lws *wsi, enum lws_callback_reasons reason, void *user, 
         }
       }
 
-      if (server->once && server->client_count == 0) {
-        lwsl_notice("exiting due to the --once option.\n");
+      if ((server->once || server->exit_no_conn) && server->client_count == 0) {
+        lwsl_notice("exiting due to the --once/--exit-no-conn option.\n");
         force_exit = true;
         lws_cancel_service(context);
         exit(0);

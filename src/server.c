@@ -71,18 +71,19 @@ static const struct option options[] = {{"port", required_argument, NULL, 'p'},
                                         {"ssl-key", required_argument, NULL, 'K'},
                                         {"ssl-ca", required_argument, NULL, 'A'},
                                         {"url-arg", no_argument, NULL, 'a'},
-                                        {"readonly", no_argument, NULL, 'R'},
+                                        {"writable", no_argument, NULL, 'W'},
                                         {"terminal-type", required_argument, NULL, 'T'},
                                         {"client-option", required_argument, NULL, 't'},
                                         {"check-origin", no_argument, NULL, 'O'},
                                         {"max-clients", required_argument, NULL, 'm'},
                                         {"once", no_argument, NULL, 'o'},
+                                        {"exit-no-conn", no_argument, NULL, 'q'},
                                         {"browser", no_argument, NULL, 'B'},
                                         {"debug", required_argument, NULL, 'd'},
                                         {"version", no_argument, NULL, 'v'},
                                         {"help", no_argument, NULL, 'h'},
                                         {NULL, 0, 0, 0}};
-static const char *opt_string = "p:i:c:H:u:g:s:w:I:b:P:6aSC:K:A:Rt:T:Om:oBd:vh";
+static const char *opt_string = "p:i:U:c:H:u:g:s:w:I:b:P:6aSC:K:A:Wt:T:Om:oqBd:vh";
 
 static void print_help() {
   // clang-format off
@@ -102,12 +103,13 @@ static void print_help() {
           "    -s, --signal            Signal to send to the command when exit it (default: 1, SIGHUP)\n"
           "    -w, --cwd               Working directory to be set for the child program\n"
           "    -a, --url-arg           Allow client to send command line arguments in URL (eg: http://localhost:7681?arg=foo&arg=bar)\n"
-          "    -R, --readonly          Do not allow clients to write to the TTY\n"
+          "    -W, --writable          Allow clients to write to the TTY (readonly by default)\n"
           "    -t, --client-option     Send option to client (format: key=value), repeat to add more options\n"
           "    -T, --terminal-type     Terminal type to report, default: xterm-256color\n"
           "    -O, --check-origin      Do not allow websocket connection from different origin\n"
           "    -m, --max-clients       Maximum clients to support (default: 0, no limit)\n"
           "    -o, --once              Accept only one client and exit on disconnection\n"
+          "    -q, --exit-no-conn      Exit on all clients disconnection\n"
           "    -B, --browser           Open terminal with the default system browser\n"
           "    -I, --index             Custom index.html path\n"
           "    -b, --base-path         Expected base path for requests coming from a reverse proxy (eg: /mounted/here, max length: 128)\n"
@@ -148,10 +150,12 @@ static void print_config() {
   if (server->auth_header != NULL) lwsl_notice("  auth header: %s\n", server->auth_header);
   if (server->check_origin) lwsl_notice("  check origin: true\n");
   if (server->url_arg) lwsl_notice("  allow url arg: true\n");
-  if (server->readonly) lwsl_notice("  readonly: true\n");
   if (server->max_clients > 0) lwsl_notice("  max clients: %d\n", server->max_clients);
   if (server->once) lwsl_notice("  once: true\n");
+  if (server->exit_no_conn) lwsl_notice("  exit_no_conn: true\n");
   if (server->index != NULL) lwsl_notice("  custom index.html: %s\n", server->index);
+  if (server->cwd != NULL) lwsl_notice("  working directory: %s\n", server->cwd);
+  if (!server->writable) lwsl_notice("The --writable option is not set, will start in readonly mode");
 }
 
 static struct server *server_new(int argc, char **argv, int start) {
@@ -321,7 +325,7 @@ int main(int argc, char **argv) {
 #ifndef LWS_WITHOUT_EXTENSIONS
   info.extensions = extensions;
 #endif
-  info.max_http_header_data = 20480;
+  info.max_http_header_data = 65535;
 
   int debug_level = LLL_ERR | LLL_WARN | LLL_NOTICE;
   char iface[128] = "";
@@ -333,6 +337,10 @@ int main(int argc, char **argv) {
   char ca_path[1024] = "";
 
   struct json_object *client_prefs = json_object_new_object();
+
+#ifdef _WIN32
+  json_object_object_add(client_prefs, "isWindows", json_object_new_boolean(true));
+#endif
 
   // parse command line options
   int c;
@@ -350,8 +358,8 @@ int main(int argc, char **argv) {
       case 'a':
         server->url_arg = true;
         break;
-      case 'R':
-        server->readonly = true;
+      case 'W':
+        server->writable = true;
         break;
       case 'O':
         server->check_origin = true;
@@ -361,6 +369,9 @@ int main(int argc, char **argv) {
         break;
       case 'o':
         server->once = true;
+        break;
+      case 'q':
+        server->exit_no_conn = true;
         break;
       case 'B':
         browser = true;
